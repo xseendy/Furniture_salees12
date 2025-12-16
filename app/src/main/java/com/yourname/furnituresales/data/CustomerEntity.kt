@@ -10,6 +10,7 @@ data class CustomerEntity(
     val displayName: String?,
     val role: String,
     val address: String?,
-    val phone: String?
+    val phone: String?,
+    val password: String?
 )
 

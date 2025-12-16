@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 data class FurnitureUiState(
     val userProfile: UserProfile? = null,
@@ -31,15 +32,16 @@ data class FurnitureUiState(
     val paymentMethod: String = "Card",
     val customers: List<UserProfile> = emptyList(),
     val checkoutMessage: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    val profileMessage: String? = null,
+    val deliveryMethod: String = "courier",
+    val promoCode: String = "",
+    val promoDiscount: Double = 0.0 // 0.0–1.0, e.g. 0.1 = 10%
 )
 
 class FurnitureSalesViewModel(application: Application) : AndroidViewModel(application) {
-    // Simple in-memory auth; credentials persisted via DB profiles.
-    private val userStore: MutableMap<String, String> = mutableMapOf(
-        "demo@furniture.test" to "password123",
-        "admin@furniture.test" to "admin123"
-    )
+    // Simple in-memory auth; credentials persisted via Room database.
+    private val userStore: MutableMap<String, String> = mutableMapOf()
     private val customerProfiles: MutableMap<String, UserProfile> = mutableMapOf()
     private val db: AppDatabase = Room.databaseBuilder(
         application,
@@ -152,6 +154,12 @@ class FurnitureSalesViewModel(application: Application) : AndroidViewModel(appli
             color = "Копчёный дуб"
         )
     )
+
+    private val usdToRubRate = 90.0
+
+    private fun formatRub(amountUsd: Double): String =
+        String.format(Locale("ru", "RU"), "%,.0f ₽", amountUsd * usdToRubRate)
+
     private val _uiState = MutableStateFlow(FurnitureUiState())
     val uiState: StateFlow<FurnitureUiState> = _uiState.asStateFlow()
 
@@ -160,8 +168,8 @@ class FurnitureSalesViewModel(application: Application) : AndroidViewModel(appli
         loadProducts()
         _uiState.value = _uiState.value.copy(
             addresses = sampleAddresses,
-            shippingAddress = sampleAddresses.firstOrNull()?.line ?: "",
-            phone = sampleAddresses.firstOrNull()?.phone ?: ""
+            shippingAddress = "",
+            phone = ""
         )
     }
 
@@ -177,7 +185,7 @@ class FurnitureSalesViewModel(application: Application) : AndroidViewModel(appli
                 if (!validateCredentials(email, password)) return@launch
                 val stored = userStore[email.trim()]
                 if (stored == null || stored != password) {
-                    updateError("Invalid email or password.")
+                    updateError("Неверный email или пароль.")
                     return@launch
                 }
                 val role = if (email.trim() == "admin@furniture.test") "admin" else "customer"
@@ -187,9 +195,9 @@ class FurnitureSalesViewModel(application: Application) : AndroidViewModel(appli
                     userProfile = profile,
                     isLoading = false,
                     error = null,
-                    checkoutMessage = null,
-                    cart = emptyList()
+                    checkoutMessage = null
                 )
+                loadCustomerDetails(profile)
                 loadProducts()
             } catch (e: Exception) {
                 updateError("Sign-in failed: ${e.message}")
@@ -204,11 +212,11 @@ class FurnitureSalesViewModel(application: Application) : AndroidViewModel(appli
                 if (!validateCredentials(email, password)) return@launch
                 val trimmedEmail = email.trim()
                 if (userStore.containsKey(trimmedEmail)) {
-                    updateError("That email is already registered.")
+                    updateError("Этот email уже зарегистрирован.")
                     return@launch
                 }
                 userStore[trimmedEmail] = password
-                val role = if (trimmedEmail == "admin@furniture.test") "admin" else "customer"
+                val role = "customer"
                 val profile = UserProfile(uid = trimmedEmail, email = trimmedEmail, role = role)
                 persistCustomer(profile, _uiState.value.shippingAddress, _uiState.value.phone)
                 _uiState.value = _uiState.value.copy(
@@ -217,9 +225,10 @@ class FurnitureSalesViewModel(application: Application) : AndroidViewModel(appli
                     error = null,
                     checkoutMessage = null
                 )
+                loadCustomerDetails(profile)
                 loadProducts()
             } catch (e: Exception) {
-                updateError("Account creation failed: ${e.message}")
+                updateError("Не удалось создать аккаунт: ${e.message}")
             }
         }
     }
@@ -237,7 +246,7 @@ class FurnitureSalesViewModel(application: Application) : AndroidViewModel(appli
                 )
                 loadProducts()
             } catch (e: Exception) {
-                updateError("Guest sign-in failed: ${e.message}")
+                updateError("Не удалось войти как гость: ${e.message}")
             }
         }
     }
@@ -253,7 +262,7 @@ class FurnitureSalesViewModel(application: Application) : AndroidViewModel(appli
                     error = null
                 )
             } catch (e: Exception) {
-                updateError("Could not load products: ${e.message}")
+                updateError("Не удалось загрузить товары: ${e.message}")
             }
         }
     }
@@ -282,19 +291,36 @@ class FurnitureSalesViewModel(application: Application) : AndroidViewModel(appli
     }
 
     fun clearCart() {
-        _uiState.value = _uiState.value.copy(cart = emptyList(), checkoutMessage = null)
+        _uiState.value = _uiState.value.copy(
+            cart = emptyList(),
+            checkoutMessage = null,
+            promoCode = "",
+            promoDiscount = 0.0,
+            error = null
+        )
+    }
+
+    fun removeFromCart(productId: String) {
+        val current = _uiState.value.cart.toMutableList()
+        val idx = current.indexOfFirst { it.product.id == productId }
+        if (idx >= 0) {
+            current.removeAt(idx)
+            _uiState.value = _uiState.value.copy(cart = current, checkoutMessage = null)
+        }
     }
 
     fun checkout() {
         val total = _uiState.value.cart.sumOf { it.product.price * it.quantity }
         if (total <= 0) {
-            updateError("Your cart is empty.")
+            updateError("Корзина пуста.")
             return
         }
         if (_uiState.value.shippingAddress.isBlank()) {
-            updateError("Add a shipping address to place your order.")
+            updateError("Добавьте адрес доставки, чтобы оформить заказ.")
             return
         }
+        val discountFactor = 1.0 - _uiState.value.promoDiscount.coerceIn(0.0, 1.0)
+        val totalWithDiscount = total * discountFactor
         val order = Order(
             id = "order-${System.currentTimeMillis()}",
             items = _uiState.value.cart.map {
@@ -312,11 +338,19 @@ class FurnitureSalesViewModel(application: Application) : AndroidViewModel(appli
                 line = _uiState.value.shippingAddress,
                 phone = _uiState.value.phone.ifBlank { "Без телефона" }
             ),
-            status = "Новый"
+            status = "NEW"
         )
         _uiState.value = _uiState.value.copy(
             cart = emptyList(),
-            checkoutMessage = "Заказ оформлен! Итог: $${"%.2f".format(total)} • ${_uiState.value.paymentMethod} • ${_uiState.value.shippingAddress} • ${_uiState.value.phone.ifBlank { "Без телефона" }}",
+            checkoutMessage = buildString {
+                append("Заказ оформлен! Итог: ${formatRub(totalWithDiscount)}")
+                if (_uiState.value.promoDiscount > 0.0) {
+                    append(" (скидка по промокоду)")
+                }
+                append(" • ${_uiState.value.paymentMethod}")
+                append(" • ${_uiState.value.shippingAddress}")
+                append(" • ${_uiState.value.phone.ifBlank { "Без телефона" }}")
+            },
             error = null,
             orders = _uiState.value.orders + order
         )
@@ -334,6 +368,124 @@ class FurnitureSalesViewModel(application: Application) : AndroidViewModel(appli
 
     fun setPaymentMethod(method: String) {
         _uiState.value = _uiState.value.copy(paymentMethod = method, error = null, checkoutMessage = null)
+    }
+
+    fun setDeliveryMethod(method: String) {
+        _uiState.value = _uiState.value.copy(deliveryMethod = method, error = null, checkoutMessage = null)
+    }
+
+    fun updateDisplayName(name: String) {
+        val currentProfile = _uiState.value.userProfile ?: return
+        val updatedProfile = currentProfile.copy(displayName = name.ifBlank { null })
+        _uiState.value = _uiState.value.copy(userProfile = updatedProfile, error = null)
+        persistCustomer(updatedProfile, _uiState.value.shippingAddress, _uiState.value.phone)
+    }
+
+    fun saveProfile(name: String, address: String, phone: String) {
+        val currentProfile = _uiState.value.userProfile ?: return
+        val updatedProfile = currentProfile.copy(displayName = name.ifBlank { null })
+        _uiState.value = _uiState.value.copy(
+            userProfile = updatedProfile,
+            shippingAddress = address,
+            phone = phone,
+            error = null,
+            profileMessage = "Данные профиля сохранены."
+        )
+        persistCustomer(updatedProfile, address, phone)
+    }
+
+    fun applyPromoCode(code: String) {
+        val normalized = code.trim().uppercase()
+        val discount = when (normalized) {
+            "SALE10" -> 0.10
+            "SALE20" -> 0.20
+            else -> 0.0
+        }
+        _uiState.value = if (discount > 0.0) {
+            _uiState.value.copy(
+                promoCode = normalized,
+                promoDiscount = discount,
+                error = null,
+                checkoutMessage = null
+            )
+        } else {
+            _uiState.value.copy(
+                promoCode = normalized,
+                promoDiscount = 0.0,
+                error = "Промокод не найден или недействителен."
+            )
+        }
+    }
+
+    fun changePassword(currentPassword: String, newPassword: String) {
+        val profile = _uiState.value.userProfile
+        if (profile == null) {
+            updateError("Сначала войдите в аккаунт.")
+            return
+        }
+        viewModelScope.launch {
+            val email = profile.email?.trim().orEmpty()
+            val stored = userStore[email]
+            when {
+                stored == null -> {
+                    updateError("Учетная запись не найдена.")
+                }
+
+                stored != currentPassword -> {
+                    updateError("Текущий пароль указан неверно.")
+                }
+
+                newPassword.length < 6 -> {
+                    updateError("Новый пароль должен быть не менее 6 символов.")
+                }
+
+                else -> {
+                    userStore[email] = newPassword
+                    // persist updated password into DB
+                    val existing = db.customerDao().findByEmail(email)
+                    if (existing != null) {
+                        db.customerDao().upsert(
+                            existing.copy(password = newPassword)
+                        )
+                    }
+                    _uiState.value = _uiState.value.copy(
+                        error = null,
+                        profileMessage = "Пароль успешно изменён."
+                    )
+                }
+            }
+        }
+    }
+
+    fun resetPassword(email: String, newPassword: String) {
+        updateLoading(true)
+        viewModelScope.launch {
+            try {
+                val trimmedEmail = email.trim()
+                if (trimmedEmail.isEmpty() || !trimmedEmail.contains("@")) {
+                    updateError("Введите корректный email.")
+                    return@launch
+                }
+                if (newPassword.length < 6) {
+                    updateError("Новый пароль должен быть не менее 6 символов.")
+                    return@launch
+                }
+                val customer = db.customerDao().findByEmail(trimmedEmail)
+                if (customer == null) {
+                    updateError("Аккаунт с таким email не найден.")
+                    return@launch
+                }
+                userStore[trimmedEmail] = newPassword
+                db.customerDao().upsert(customer.copy(password = newPassword))
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    error = null,
+                    profileMessage = "Пароль обновлён. Теперь вы можете войти."
+                )
+            } catch (e: Exception) {
+                updateError("Не удалось сбросить пароль: ${e.message}")
+            }
+        }
     }
 
     fun toggleFavorite(productId: String) {
@@ -385,7 +537,28 @@ class FurnitureSalesViewModel(application: Application) : AndroidViewModel(appli
     private fun observeCustomers() {
         viewModelScope.launch {
             db.customerDao().getCustomers().collect { customers ->
-                _uiState.value = _uiState.value.copy(customers = customers.map { it.toProfile() })
+                customers.forEach { customer ->
+                    val email = customer.email
+                    val password = customer.password
+                    if (!email.isNullOrBlank() && !password.isNullOrBlank()) {
+                        userStore[email] = password
+                    }
+                }
+                var newState = _uiState.value.copy(customers = customers.map { it.toProfile() })
+                val currentProfile = newState.userProfile
+                if (currentProfile != null) {
+                    val matched = customers.find { entity ->
+                        entity.uid == currentProfile.uid ||
+                                (!entity.email.isNullOrBlank() && entity.email == currentProfile.email)
+                    }
+                    if (matched != null) {
+                        newState = newState.copy(
+                            shippingAddress = matched.address ?: newState.shippingAddress,
+                            phone = matched.phone ?: newState.phone
+                        )
+                    }
+                }
+                _uiState.value = newState
             }
         }
     }
@@ -399,9 +572,23 @@ class FurnitureSalesViewModel(application: Application) : AndroidViewModel(appli
                     displayName = profile.displayName,
                     role = profile.role,
                     address = address.ifBlank { null },
-                    phone = phone.ifBlank { null }
+                    phone = phone.ifBlank { null },
+                    password = profile.email?.let { userStore[it.trim()] }
                 )
             )
+        }
+    }
+
+    private fun loadCustomerDetails(profile: UserProfile) {
+        val email = profile.email ?: return
+        viewModelScope.launch {
+            val entity = db.customerDao().findByEmail(email.trim())
+            if (entity != null) {
+                _uiState.value = _uiState.value.copy(
+                    shippingAddress = entity.address ?: "",
+                    phone = entity.phone ?: ""
+                )
+            }
         }
     }
 

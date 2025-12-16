@@ -36,7 +36,17 @@ data class Order(
     val items: List<OrderItem>,
     val total: Double,
     val address: Address,
-    val status: String = "Новый"
+    /**
+     * Статус заказа. Допустимые значения:
+     *  - "NEW"         – новый заказ
+     *  - "IN_PROGRESS" – в обработке / в пути
+     *  - "DONE"        – завершён / доставлен
+     *
+     * Для отображения на экране используются человекочитаемые подписи,
+     * поэтому фильтры в личном кабинете всегда работают корректно,
+     * даже если внутреннее значение статуса менялось.
+     */
+    val status: String = "NEW"
 )
 
 data class UserProfile(
