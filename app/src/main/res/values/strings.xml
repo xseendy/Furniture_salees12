@@ -1,3 +1,195 @@
 <resources>
-    <string name="app_name">Furniture sales</string>
+    <string name="app_name">Магазин мебели</string>
+
+    <string name="tab_home">Главная</string>
+    <string name="tab_cart">Корзина</string>
+    <string name="tab_profile">Профиль</string>
+
+    <string name="snackbar_added_to_cart">Товар добавлен в корзину</string>
+    <string name="snackbar_added_to_favorites">Добавлено в избранное</string>
+    <string name="snackbar_removed_from_favorites">Удалено из избранного</string>
+
+    <string name="auth_title">Магазин мебели</string>
+    <string name="auth_subtitle_welcome">Добро пожаловать</string>
+    <string name="auth_subtitle_register">Создать аккаунт</string>
+    <string name="auth_subtitle_reset">Восстановление доступа</string>
+    <string name="field_email">Email</string>
+    <string name="field_password">Пароль</string>
+    <string name="field_new_password">Новый пароль</string>
+    <string name="action_show">Показать</string>
+    <string name="action_hide">Скрыть</string>
+    <string name="action_sign_in">Войти</string>
+    <string name="action_sign_up">Зарегистрироваться</string>
+    <string name="action_reset_password">Сбросить пароль</string>
+    <string name="action_have_account">Уже есть аккаунт? Войти</string>
+    <string name="action_create_account">Впервые? Создать аккаунт</string>
+    <string name="action_back_to_sign_in">Вернуться ко входу</string>
+    <string name="action_forgot_password">Забыли пароль?</string>
+    <string name="action_continue_as_guest">Продолжить как гость</string>
+
+    <string name="home_greeting">Привет, %1$s</string>
+    <string name="home_guest">гость</string>
+    <string name="home_hello">Здравствуйте, %1$s</string>
+    <string name="home_tagline">Выберите мебель для гостиной, спальни и рабочего кабинета</string>
+
+    <string name="catalog_price_filter_title">Фильтр по цене</string>
+    <string name="catalog_search_label">Поиск</string>
+    <string name="catalog_search_placeholder">Название или описание</string>
+    <string name="action_clear_search">Очистить поиск</string>
+    <string name="catalog_results_count">Найдено: %1$d</string>
+    <string name="action_toggle_filters">Фильтры</string>
+    <string name="catalog_price_slider_title">Цена, ₽</string>
+    <string name="catalog_category_all">Все категории</string>
+    <string name="catalog_category_sofas">Диваны</string>
+    <string name="catalog_category_chairs">Кресла</string>
+    <string name="catalog_category_tables">Столы</string>
+    <string name="catalog_category_beds">Кровати</string>
+    <string name="catalog_category_lamps">Свет</string>
+    <string name="catalog_category_rugs">Ковры</string>
+    <string name="catalog_category_storage">Хранение</string>
+    <string name="catalog_empty_title">Ничего не найдено</string>
+    <string name="catalog_empty_hint">Попробуйте изменить фильтры или нажмите «Сбросить».</string>
+    <string name="catalog_filter_all">Все</string>
+    <string name="catalog_filter_low">До 40 тыс.</string>
+    <string name="catalog_filter_mid">40–80 тыс.</string>
+    <string name="catalog_filter_high">80 тыс.+</string>
+    <string name="catalog_price_from">От, ₽</string>
+    <string name="catalog_price_to">До, ₽</string>
+    <string name="catalog_price_from_placeholder">0</string>
+    <string name="catalog_price_to_placeholder">∞</string>
+    <string name="catalog_only_favorites">Только избранное</string>
+    <string name="catalog_sort_price_asc">Цена ↑</string>
+    <string name="catalog_sort_price_desc">Цена ↓</string>
+    <string name="action_reset_filters">Сбросить</string>
+
+    <string name="product_specs_title">Характеристики</string>
+    <string name="product_specs_dimensions">Размеры: %1$s</string>
+    <string name="product_specs_material">Материал: %1$s</string>
+    <string name="product_specs_color">Цвет: %1$s</string>
+
+    <string name="hero_title">Создайте уютный дом</string>
+    <string name="hero_subtitle">Подберите готовые решения для гостиной, спальни, столовой и рабочего кабинета.</string>
+
+    <string name="action_add_to_cart">В корзину</string>
+    <string name="action_back">Назад</string>
+    <string name="action_add_to_cart_full">Добавить в корзину</string>
+    <string name="action_add_to_cart_with_qty">Добавить в корзину • %1$d</string>
+    <string name="action_favorite_on">В избранном</string>
+    <string name="action_favorite_off">В избранное</string>
+    <string name="action_remove_short">Убрать</string>
+    <string name="action_sign_out">Выйти из аккаунта</string>
+
+    <string name="cart_title">Корзина</string>
+    <string name="cart_empty_title">Корзина пуста</string>
+    <string name="cart_empty_hint">Добавьте товары из каталога</string>
+    <string name="cart_empty_message">В вашей корзине пока нет товаров.</string>
+    <string name="cart_empty_message_2">Перейдите в каталог и добавьте понравившиеся позиции.</string>
+    <string name="action_to_catalog">К каталогу</string>
+    <string name="cart_items_count">Товаров: %1$d</string>
+    <string name="cart_preliminary_total">Предварительный итог</string>
+
+    <string name="order_total_title">Итого к оплате</string>
+    <string name="action_checkout">Перейти к оформлению</string>
+    <string name="action_clear_cart">Очистить корзину</string>
+
+    <string name="delivery_title">Доставка</string>
+    <string name="delivery_address">Адрес доставки: %1$s</string>
+    <string name="delivery_phone">Телефон: %1$s</string>
+    <string name="not_specified">не указан</string>
+    <string name="delivery_edit_hint">Изменить адрес и телефон можно в профиле</string>
+
+    <string name="payment_title">Способ оплаты</string>
+    <string name="payment_card">Карта</string>
+    <string name="payment_cash">Наличные</string>
+    <string name="payment_bank_transfer">Банковский перевод</string>
+
+    <string name="delivery_method_title">Способ доставки</string>
+    <string name="delivery_method_courier">Курьер</string>
+    <string name="delivery_method_pickup">Самовывоз</string>
+    <string name="delivery_method_post">Почта</string>
+
+    <string name="cart_item_price">Цена: %1$s</string>
+    <string name="cart_item_quantity_and_sum">Количество: %1$d • Сумма: %2$s</string>
+    <string name="action_remove">Удалить</string>
+
+    <string name="profile_title">Профиль</string>
+    <string name="profile_signed_in_as">Вы вошли как %1$s</string>
+    <string name="profile_guest">Гость</string>
+    <string name="profile_tab_data">Данные</string>
+    <string name="profile_tab_password">Пароль</string>
+    <string name="profile_tab_orders">Заказы</string>
+
+    <string name="profile_section_account_data">Данные аккаунта</string>
+    <string name="field_name">Имя</string>
+    <string name="field_address">Адрес</string>
+    <string name="field_address_placeholder">Улица, город, индекс</string>
+    <string name="field_city">Город</string>
+    <string name="field_street">Улица</string>
+    <string name="field_house">Дом</string>
+    <string name="field_apartment">Квартира</string>
+    <string name="field_postal_code">Индекс</string>
+    <string name="field_city_placeholder">Москва</string>
+    <string name="field_street_placeholder">Пушкина</string>
+    <string name="field_house_placeholder">10</string>
+    <string name="field_apartment_placeholder">12</string>
+    <string name="field_postal_code_placeholder">123456</string>
+    <string name="field_phone">Телефон</string>
+    <string name="field_phone_placeholder">+7 900 123 4567</string>
+    <string name="action_save_profile">Сохранить данные</string>
+
+    <string name="field_current_password">Текущий пароль</string>
+    <string name="action_change_password">Сменить пароль</string>
+
+    <string name="profile_favorites_title">Избранное</string>
+    <string name="profile_no_favorites">Нет избранных товаров.</string>
+    <string name="profile_orders_history_title">История заказов</string>
+
+    <string name="orders_filter_all">Все</string>
+    <string name="orders_filter_new">Новые</string>
+    <string name="orders_filter_in_progress">В обработке</string>
+    <string name="orders_filter_done">Завершённые</string>
+
+    <string name="orders_empty">Вы ещё не оформляли заказы.</string>
+    <string name="orders_empty_with_filter">Нет заказов с выбранным статусом.</string>
+
+    <string name="order_status_new">Новый</string>
+    <string name="order_status_in_progress">В обработке</string>
+    <string name="order_status_done">Завершён</string>
+    <string name="order_title">Заказ %1$s</string>
+    <string name="order_status_label">Статус: %1$s</string>
+    <string name="order_items_count">Товаров: %1$d</string>
+
+    <string name="msg_profile_saved">Данные профиля сохранены.</string>
+    <string name="msg_password_updated">Пароль обновлён. Теперь вы можете войти.</string>
+    <string name="msg_password_changed">Пароль успешно изменён.</string>
+    <string name="msg_no_phone">Без телефона</string>
+    <string name="msg_order_created">Заказ оформлен! Итог: %1$s</string>
+    <string name="msg_order_discount_suffix"> (скидка по промокоду)</string>
+    <string name="status_new">NEW</string>
+
+    <string name="err_invalid_email_or_password">Неверный email или пароль.</string>
+    <string name="err_email_already_registered">Этот email уже зарегистрирован.</string>
+    <string name="err_sign_up_failed">Не удалось создать аккаунт: %1$s</string>
+    <string name="err_sign_in_failed">Не удалось войти: %1$s</string>
+    <string name="err_guest_sign_in_failed">Не удалось войти как гость: %1$s</string>
+    <string name="err_load_products_failed">Не удалось загрузить товары: %1$s</string>
+    <string name="err_cart_empty">Корзина пуста.</string>
+    <string name="err_add_delivery_address">Добавьте адрес доставки, чтобы оформить заказ.</string>
+    <string name="err_sign_in_first">Сначала войдите в аккаунт.</string>
+    <string name="err_account_not_found">Учетная запись не найдена.</string>
+    <string name="err_current_password_wrong">Текущий пароль указан неверно.</string>
+    <string name="err_new_password_short">Новый пароль должен быть не менее 6 символов.</string>
+    <string name="err_enter_valid_email">Введите корректный email.</string>
+    <string name="err_email_not_found">Аккаунт с таким email не найден.</string>
+    <string name="err_reset_password_failed">Не удалось сбросить пароль: %1$s</string>
+    <string name="err_email_required">Укажите email.</string>
+    <string name="err_password_short">Пароль должен быть не менее 6 символов.</string>
+    <string name="err_promo_invalid">Промокод не найден или недействителен.</string>
+    <string name="err_profile_name_required">Укажите имя.</string>
+    <string name="err_profile_address_required">Заполните адрес доставки.</string>
+    <string name="err_profile_city_required">Укажите город.</string>
+    <string name="err_profile_street_required">Укажите улицу.</string>
+    <string name="err_profile_house_required">Укажите дом.</string>
+    <string name="err_profile_phone_required">Укажите телефон.</string>
+    <string name="err_profile_phone_invalid">Введите корректный телефон.</string>
 </resources>

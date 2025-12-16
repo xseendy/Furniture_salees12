@@ -11,6 +11,8 @@ data class CustomerEntity(
     val role: String,
     val address: String?,
     val phone: String?,
+    val paymentMethod: String?,
+    val deliveryMethod: String?,
     val password: String?
 )
 
