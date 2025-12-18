@@ -21,6 +21,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -111,6 +112,8 @@ private fun composeAddress(city: String, street: String, house: String, apartmen
 fun AccountScreen(
     modifier: Modifier = Modifier,
     uiState: FurnitureUiState,
+    isDarkTheme: Boolean,
+    onToggleTheme: (Boolean) -> Unit,
     onSignOut: () -> Unit,
     onAddressChange: (String) -> Unit,
     onPhoneChange: (String) -> Unit,
@@ -134,7 +137,12 @@ fun AccountScreen(
     var phone by rememberSaveable { mutableStateOf("") }
     var attemptedSaveProfile by rememberSaveable { mutableStateOf(false) }
 
-    LaunchedEffect(uiState.userProfile?.uid) {
+    LaunchedEffect(
+        uiState.userProfile?.uid,
+        uiState.userProfile?.displayName,
+        uiState.shippingAddress,
+        uiState.phone
+    ) {
         name = uiState.userProfile?.displayName.orEmpty()
         val (c, s, h, a, p) = parseAddressFields(uiState.shippingAddress)
         city = c
@@ -146,13 +154,14 @@ fun AccountScreen(
     }
 
     val addressValue = composeAddress(city, street, house, apartment, postalCode)
-    val canSaveProfile = name.trim().isNotBlank() && city.trim().isNotBlank() && street.trim().isNotBlank() && house.trim().isNotBlank() && phone.trim().isNotBlank()
+    val canSaveProfile = name.trim().isNotBlank() && city.trim().isNotBlank() && street.trim().isNotBlank() && house.trim().isNotBlank()
 
     val nameError = attemptedSaveProfile && name.trim().isBlank()
     val cityError = attemptedSaveProfile && city.trim().isBlank()
     val streetError = attemptedSaveProfile && street.trim().isBlank()
     val houseError = attemptedSaveProfile && house.trim().isBlank()
-    val phoneError = attemptedSaveProfile && phone.trim().isBlank()
+    val phoneDigits = phone.filter { it.isDigit() }
+    val phoneError = attemptedSaveProfile && phone.trim().isNotBlank() && phoneDigits.length < 11
 
     Column(
         modifier = modifier
@@ -202,6 +211,7 @@ fun AccountScreen(
                     onValueChange = { },
                     label = { Text(stringResource(R.string.field_email)) },
                     modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
                     enabled = false
                 )
                 OutlinedTextField(
@@ -212,12 +222,41 @@ fun AccountScreen(
                     label = { Text(stringResource(R.string.field_name)) },
                     modifier = Modifier.fillMaxWidth(),
                     isError = nameError,
-                    supportingText = {
-                        if (nameError) {
-                            Text("Имя обязательно")
-                        }
-                    }
+                    singleLine = true,
+                    supportingText = if (nameError) {
+                        { Text("Имя обязательно") }
+                    } else null
                 )
+                OutlinedTextField(
+                    value = phone,
+                    onValueChange = {
+                        val formatted = normalizePhoneInput(it)
+                        phone = formatted
+                    },
+                    label = { Text(stringResource(R.string.field_phone)) },
+                    placeholder = { Text(stringResource(R.string.field_phone_placeholder)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    isError = phoneError,
+                    singleLine = true,
+                    supportingText = if (phoneError) {
+                        { Text("Телефон обязателен") }
+                    } else null
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = stringResource(R.string.setting_dark_theme),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Switch(
+                        checked = isDarkTheme,
+                        onCheckedChange = onToggleTheme
+                    )
+                }
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Surface(
@@ -243,11 +282,10 @@ fun AccountScreen(
                             placeholder = { Text(stringResource(R.string.field_city_placeholder)) },
                             modifier = Modifier.fillMaxWidth(),
                             isError = cityError,
-                            supportingText = {
-                                if (cityError) {
-                                    Text("Город обязателен")
-                                }
-                            }
+                            singleLine = true,
+                            supportingText = if (cityError) {
+                                { Text("Город обязателен") }
+                            } else null
                         )
                         OutlinedTextField(
                             value = street,
@@ -258,11 +296,10 @@ fun AccountScreen(
                             placeholder = { Text(stringResource(R.string.field_street_placeholder)) },
                             modifier = Modifier.fillMaxWidth(),
                             isError = streetError,
-                            supportingText = {
-                                if (streetError) {
-                                    Text("Улица обязательна")
-                                }
-                            }
+                            singleLine = true,
+                            supportingText = if (streetError) {
+                                { Text("Улица обязательна") }
+                            } else null
                         )
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedTextField(
@@ -274,11 +311,10 @@ fun AccountScreen(
                                 placeholder = { Text(stringResource(R.string.field_house_placeholder)) },
                                 modifier = Modifier.weight(1f),
                                 isError = houseError,
-                                supportingText = {
-                                    if (houseError) {
-                                        Text("Дом обязателен")
-                                    }
-                                }
+                                singleLine = true,
+                                supportingText = if (houseError) {
+                                    { Text("Дом обязателен") }
+                                } else null
                             )
                             OutlinedTextField(
                                 value = apartment,
@@ -287,7 +323,8 @@ fun AccountScreen(
                                 },
                                 label = { Text(stringResource(R.string.field_apartment)) },
                                 placeholder = { Text(stringResource(R.string.field_apartment_placeholder)) },
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
                             )
                         }
                         OutlinedTextField(
@@ -297,27 +334,11 @@ fun AccountScreen(
                             },
                             label = { Text(stringResource(R.string.field_postal_code)) },
                             placeholder = { Text(stringResource(R.string.field_postal_code_placeholder)) },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
                         )
                     }
                 }
-                OutlinedTextField(
-                    value = phone,
-                    onValueChange = {
-                        val formatted = normalizePhoneInput(it)
-                        phone = formatted
-                    },
-                    label = { Text(stringResource(R.string.field_phone)) },
-                    placeholder = { Text(stringResource(R.string.field_phone_placeholder)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                    isError = phoneError,
-                    supportingText = {
-                        if (phoneError) {
-                            Text("Телефон обязателен")
-                        }
-                    }
-                )
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(
                     onClick = {
@@ -349,27 +370,60 @@ fun AccountScreen(
             }
 
             AccountTab.PASSWORD -> {
-                OutlinedTextField(
-                    value = currentPassword,
-                    onValueChange = { currentPassword = it },
-                    label = { Text(stringResource(R.string.field_current_password)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    visualTransformation = PasswordVisualTransformation()
-                )
+                val isGuest = uiState.userProfile?.uid == "guest"
+                if (isGuest) {
+                    Text(
+                        text = stringResource(R.string.msg_guest_password_unavailable),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (!isGuest && !uiState.hasPasswordProvider) {
+                    Text(
+                        text = stringResource(R.string.msg_password_set_hint),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (!isGuest && uiState.hasPasswordProvider) {
+                    OutlinedTextField(
+                        value = currentPassword,
+                        onValueChange = { currentPassword = it },
+                        label = { Text(stringResource(R.string.field_current_password)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !uiState.isLoading,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        visualTransformation = PasswordVisualTransformation()
+                    )
+                }
                 OutlinedTextField(
                     value = newPassword,
                     onValueChange = { newPassword = it },
-                    label = { Text(stringResource(R.string.field_new_password)) },
+                    label = {
+                        Text(
+                            stringResource(
+                                if (uiState.hasPasswordProvider) R.string.field_new_password else R.string.field_password
+                            )
+                        )
+                    },
                     modifier = Modifier.fillMaxWidth(),
+                    enabled = !uiState.isLoading && !isGuest,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     visualTransformation = PasswordVisualTransformation()
                 )
                 Button(
-                    onClick = { onChangePassword(currentPassword, newPassword) },
+                    onClick = {
+                        onChangePassword(currentPassword, newPassword)
+                        currentPassword = ""
+                        newPassword = ""
+                    },
                     modifier = Modifier.fillMaxWidth()
+                    ,
+                    enabled = !uiState.isLoading && !isGuest && newPassword.length >= 6 && (!uiState.hasPasswordProvider || currentPassword.isNotBlank())
                 ) {
-                    Text(stringResource(R.string.action_change_password))
+                    Text(
+                        stringResource(
+                            if (uiState.hasPasswordProvider) R.string.action_change_password else R.string.action_set_password
+                        )
+                    )
                 }
                 if (profileMessage != null) {
                     Text(

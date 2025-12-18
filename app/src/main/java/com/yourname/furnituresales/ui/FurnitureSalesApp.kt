@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.yourname.furnituresales.ui
 
 import androidx.compose.foundation.background
@@ -54,6 +56,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -80,7 +84,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.ShoppingCart
+import android.app.Activity
 import coil.compose.AsyncImage
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
 import com.yourname.furnituresales.FurnitureSalesViewModel
 import com.yourname.furnituresales.FurnitureUiState
 import com.yourname.furnituresales.R
@@ -105,12 +113,46 @@ private object Routes {
 }
 
 @Composable
-fun FurnitureSalesApp(viewModel: FurnitureSalesViewModel = hiltViewModel()) {
+fun FurnitureSalesApp(
+    isDarkTheme: Boolean,
+    onToggleTheme: (Boolean) -> Unit,
+    viewModel: FurnitureSalesViewModel = hiltViewModel()
+) {
     val uiState by viewModel.uiState.collectAsState()
     val isAuthed = uiState.userProfile != null
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     val navController = rememberNavController()
+    val context = LocalContext.current
+
+    val googleSignInClient = remember {
+        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestEmail()
+            .requestIdToken(context.getString(R.string.google_web_client_id))
+            .build()
+        GoogleSignIn.getClient(context, gso)
+    }
+
+    val googleSignInLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode != Activity.RESULT_OK) {
+            viewModel.onGoogleSignInCancelled()
+            return@rememberLauncherForActivityResult
+        }
+        try {
+            val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+            val account = task.getResult(ApiException::class.java)
+            val idToken = account.idToken
+            if (idToken.isNullOrBlank()) {
+                viewModel.onGoogleSignInMissingToken()
+            } else {
+                viewModel.signInWithGoogle(idToken)
+            }
+        } catch (e: Exception) {
+            viewModel.onGoogleSignInFailed(e)
+        }
+    }
 
     val msgAddedToCart = stringResource(R.string.snackbar_added_to_cart)
     val msgAddedToFavorites = stringResource(R.string.snackbar_added_to_favorites)
@@ -189,9 +231,11 @@ fun FurnitureSalesApp(viewModel: FurnitureSalesViewModel = hiltViewModel()) {
                 AuthScreen(
                     isLoading = uiState.isLoading,
                     error = uiState.error,
+                    message = uiState.profileMessage,
                     onSignIn = { email, password -> viewModel.signIn(email, password) },
                     onRegister = { email, password -> viewModel.signUp(email, password) },
-                    onResetPassword = { email, password -> viewModel.resetPassword(email, password) },
+                    onResetPassword = { email -> viewModel.resetPassword(email) },
+                    onGoogleSignIn = { googleSignInLauncher.launch(googleSignInClient.signInIntent) },
                     onGuest = { viewModel.signInAnonymously() }
                 )
             }
@@ -241,6 +285,8 @@ fun FurnitureSalesApp(viewModel: FurnitureSalesViewModel = hiltViewModel()) {
                     AccountScreen(
                         modifier = baseModifier,
                         uiState = uiState,
+                        isDarkTheme = isDarkTheme,
+                        onToggleTheme = onToggleTheme,
                         onSignOut = {
                             viewModel.signOut()
                             navController.navigate(Routes.HOME) {
@@ -501,9 +547,11 @@ private fun AuthPreview() {
         AuthScreen(
             isLoading = false,
             error = null,
+            message = null,
             onSignIn = { _, _ -> },
             onRegister = { _, _ -> },
-            onResetPassword = { _, _ -> },
+            onResetPassword = { _ -> },
+            onGoogleSignIn = { },
             onGuest = {}
         )
     }

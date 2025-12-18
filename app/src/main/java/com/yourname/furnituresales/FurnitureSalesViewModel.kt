@@ -3,6 +3,16 @@ package com.yourname.furnituresales
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.firebase.auth.EmailAuthProvider
+import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
+import com.google.firebase.auth.FirebaseAuthRecentLoginRequiredException
+import com.google.firebase.auth.FirebaseAuthUserCollisionException
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.android.gms.common.api.ApiException
+import com.google.firebase.firestore.SetOptions
 import com.yourname.furnituresales.data.AppDatabase
 import com.yourname.furnituresales.data.CartItemEntity
 import com.yourname.furnituresales.data.CartItem
@@ -17,16 +27,20 @@ import com.yourname.furnituresales.data.OrderItem
 import com.yourname.furnituresales.data.OrderEntity
 import com.yourname.furnituresales.data.OrderItemEntity
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeout
 import java.util.Locale
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 
 data class FurnitureUiState(
     val userProfile: UserProfile? = null,
+    val hasPasswordProvider: Boolean = false,
     val isLoading: Boolean = false,
     val products: List<Product> = emptyList(),
     val cart: List<CartItem> = emptyList(),
@@ -48,7 +62,9 @@ data class FurnitureUiState(
 @HiltViewModel
 class FurnitureSalesViewModel @Inject constructor(
     application: Application,
-    private val db: AppDatabase
+    private val db: AppDatabase,
+    private val auth: FirebaseAuth,
+    private val firestore: FirebaseFirestore
 ) : AndroidViewModel(application) {
     // Simple in-memory auth; credentials persisted via Room database.
     private val userStore: MutableMap<String, String> = mutableMapOf()
@@ -159,10 +175,14 @@ class FurnitureSalesViewModel @Inject constructor(
     private val usdToRubRate = 90.0
 
     private fun formatRub(amountUsd: Double): String =
-        String.format(Locale("ru", "RU"), "%,.0f ₽", amountUsd * usdToRubRate)
+        String.format(Locale.forLanguageTag("ru-RU"), "%,.0f ₽", amountUsd * usdToRubRate)
 
     private val _uiState = MutableStateFlow(FurnitureUiState())
     val uiState: StateFlow<FurnitureUiState> = _uiState.asStateFlow()
+
+    private fun hasPasswordProvider(user: FirebaseUser): Boolean {
+        return user.providerData.any { it.providerId == EmailAuthProvider.PROVIDER_ID }
+    }
 
     init {
         observeCustomers()
@@ -173,6 +193,110 @@ class FurnitureSalesViewModel @Inject constructor(
             phone = "",
             paymentMethod = getApplication<Application>().getString(R.string.payment_card)
         )
+
+        val currentUser = auth.currentUser
+        if (currentUser != null) {
+            val role = if (currentUser.email?.trim() == "admin@furniture.test") "admin" else "customer"
+            val profile = UserProfile(
+                uid = currentUser.uid,
+                email = currentUser.email,
+                displayName = currentUser.displayName,
+                role = role
+            )
+            _uiState.value = _uiState.value.copy(
+                userProfile = profile,
+                hasPasswordProvider = hasPasswordProvider(currentUser)
+            )
+            restoreCartAndFavorites(profile.uid)
+            restoreOrders(profile.uid)
+            viewModelScope.launch {
+                upsertUserProfile(profile)
+            }
+            viewModelScope.launch {
+                restoreProfileDetails(profile.uid, profile.email)
+            }
+        }
+    }
+
+    private suspend fun upsertUserProfile(profile: UserProfile) {
+        try {
+            val data = hashMapOf(
+                "uid" to profile.uid,
+                "email" to profile.email,
+                "displayName" to profile.displayName,
+                "role" to profile.role
+            )
+            withTimeout(6_000) {
+                firestore.collection("users").document(profile.uid)
+                    .set(data, SetOptions.merge())
+                    .await()
+            }
+        } catch (_: Exception) {
+            // ignore remote persistence errors
+        }
+    }
+
+    private suspend fun upsertUserContact(uid: String, displayName: String?, shippingAddress: String, phone: String) {
+        try {
+            val data = hashMapOf<String, Any>()
+            val dn = displayName?.trim().orEmpty()
+            if (dn.isNotBlank()) data["displayName"] = dn
+            val addr = shippingAddress.trim()
+            if (addr.isNotBlank()) data["shippingAddress"] = addr
+            val ph = phone.trim()
+            if (ph.isNotBlank()) data["phone"] = ph
+            if (data.isEmpty()) return
+            withTimeout(6_000) {
+                firestore.collection("users").document(uid)
+                    .set(data, SetOptions.merge())
+                    .await()
+            }
+        } catch (_: Exception) {
+            // ignore remote persistence errors
+        }
+    }
+
+    private suspend fun restoreProfileDetails(uid: String, email: String?) {
+        if (uid == "guest") return
+
+        try {
+            val byUid = withTimeout(2_000) { db.customerDao().findByUid(uid) }
+            val byEmail = if (byUid == null && !email.isNullOrBlank()) {
+                withTimeout(2_000) { db.customerDao().findByEmail(email.trim()) }
+            } else null
+            val entity = byUid ?: byEmail
+            if (entity != null) {
+                _uiState.value = _uiState.value.copy(
+                    shippingAddress = entity.address ?: _uiState.value.shippingAddress,
+                    phone = entity.phone ?: _uiState.value.phone,
+                    paymentMethod = entity.paymentMethod ?: _uiState.value.paymentMethod,
+                    deliveryMethod = entity.deliveryMethod ?: _uiState.value.deliveryMethod
+                )
+            }
+        } catch (_: Exception) {
+            // ignore local restore errors
+        }
+
+        try {
+            val snapshot = withTimeout(6_000) {
+                firestore.collection("users").document(uid).get().await()
+            }
+            val remoteAddress = snapshot.getString("shippingAddress")
+            val remotePhone = snapshot.getString("phone")
+            val remoteDisplayName = snapshot.getString("displayName")
+
+            val current = _uiState.value
+            val updatedProfile = current.userProfile?.copy(
+                displayName = remoteDisplayName?.takeIf { it.isNotBlank() } ?: current.userProfile?.displayName
+            )
+            _uiState.value = current.copy(
+                userProfile = updatedProfile,
+                shippingAddress = remoteAddress?.takeIf { it.isNotBlank() } ?: current.shippingAddress,
+                phone = remotePhone?.takeIf { it.isNotBlank() } ?: current.phone
+            )
+        } catch (_: Exception) {
+            // ignore remote restore errors
+        }
     }
 
     private fun currentUid(): String? = _uiState.value.userProfile?.uid
@@ -271,6 +395,7 @@ class FurnitureSalesViewModel @Inject constructor(
     }
 
     fun signOut() {
+        auth.signOut()
         _uiState.value = FurnitureUiState()
         loadProducts()
     }
@@ -280,25 +405,33 @@ class FurnitureSalesViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 if (!validateCredentials(email, password)) return@launch
-                val stored = userStore[email.trim()]
-                if (stored == null || stored != password) {
+                val trimmedEmail = email.trim()
+                val result = withTimeout(15_000) {
+                    auth.signInWithEmailAndPassword(trimmedEmail, password).await()
+                }
+                val user = result.user
+                if (user == null) {
                     updateError(getApplication<Application>().getString(R.string.err_invalid_email_or_password))
                     return@launch
                 }
-                val role = if (email.trim() == "admin@furniture.test") "admin" else "customer"
-                val profile = customerProfiles[email.trim()] ?: UserProfile(uid = email.trim(), email = email.trim(), role = role)
-                persistCustomer(profile, _uiState.value.shippingAddress, _uiState.value.phone, _uiState.value.paymentMethod, _uiState.value.deliveryMethod)
+                val role = if (trimmedEmail == "admin@furniture.test") "admin" else "customer"
+                val profile = UserProfile(uid = user.uid, email = user.email, displayName = user.displayName, role = role)
                 _uiState.value = _uiState.value.copy(
                     userProfile = profile,
+                    hasPasswordProvider = true,
                     isLoading = false,
                     error = null,
+                    profileMessage = null,
                     checkoutMessage = null,
                     addresses = emptyList()
                 )
-                loadCustomerDetails(profile)
+                launch { upsertUserProfile(profile) }
+                launch { restoreProfileDetails(profile.uid, profile.email) }
                 loadProducts()
                 restoreCartAndFavorites(profile.uid)
                 restoreOrders(profile.uid)
+            } catch (e: TimeoutCancellationException) {
+                updateError(getApplication<Application>().getString(R.string.err_sign_in_failed, "timeout"))
             } catch (e: Exception) {
                 updateError(getApplication<Application>().getString(R.string.err_sign_in_failed, e.message))
             }
@@ -311,29 +444,107 @@ class FurnitureSalesViewModel @Inject constructor(
             try {
                 if (!validateCredentials(email, password)) return@launch
                 val trimmedEmail = email.trim()
-                if (userStore.containsKey(trimmedEmail)) {
-                    updateError(getApplication<Application>().getString(R.string.err_email_already_registered))
+                val result = withTimeout(15_000) {
+                    auth.createUserWithEmailAndPassword(trimmedEmail, password).await()
+                }
+                val user = result.user
+                if (user == null) {
+                    updateError(getApplication<Application>().getString(R.string.err_sign_up_failed, "unknown"))
                     return@launch
                 }
-                userStore[trimmedEmail] = password
                 val role = "customer"
-                val profile = UserProfile(uid = trimmedEmail, email = trimmedEmail, role = role)
-                persistCustomer(profile, _uiState.value.shippingAddress, _uiState.value.phone, _uiState.value.paymentMethod, _uiState.value.deliveryMethod)
+                val profile = UserProfile(uid = user.uid, email = user.email, displayName = user.displayName, role = role)
                 _uiState.value = _uiState.value.copy(
                     userProfile = profile,
+                    hasPasswordProvider = true,
                     isLoading = false,
                     error = null,
+                    profileMessage = null,
                     checkoutMessage = null,
                     addresses = emptyList()
                 )
-                loadCustomerDetails(profile)
+                launch { upsertUserProfile(profile) }
+                launch { restoreProfileDetails(profile.uid, profile.email) }
                 loadProducts()
                 restoreCartAndFavorites(profile.uid)
                 restoreOrders(profile.uid)
+            } catch (e: TimeoutCancellationException) {
+                updateError(getApplication<Application>().getString(R.string.err_sign_up_failed, "timeout"))
             } catch (e: Exception) {
-                updateError(getApplication<Application>().getString(R.string.err_sign_up_failed, e.message))
+                val msg = e.message ?: ""
+                if (msg.contains("email", ignoreCase = true) && msg.contains("already", ignoreCase = true)) {
+                    updateError(getApplication<Application>().getString(R.string.err_email_already_registered))
+                } else {
+                    updateError(getApplication<Application>().getString(R.string.err_sign_up_failed, msg))
+                }
             }
         }
+    }
+
+    fun signInWithGoogle(idToken: String) {
+        updateLoading(true)
+        viewModelScope.launch {
+            try {
+                val credential = GoogleAuthProvider.getCredential(idToken, null)
+                val result = withTimeout(15_000) {
+                    auth.signInWithCredential(credential).await()
+                }
+                val user = result.user
+                if (user == null) {
+                    updateError(getApplication<Application>().getString(R.string.err_google_sign_in_failed, "unknown"))
+                    return@launch
+                }
+                val role = if (user.email?.trim() == "admin@furniture.test") "admin" else "customer"
+                val profile = UserProfile(uid = user.uid, email = user.email, displayName = user.displayName, role = role)
+                _uiState.value = _uiState.value.copy(
+                    userProfile = profile,
+                    hasPasswordProvider = hasPasswordProvider(user),
+                    isLoading = false,
+                    error = null,
+                    profileMessage = null,
+                    checkoutMessage = null,
+                    addresses = emptyList()
+                )
+                launch { upsertUserProfile(profile) }
+                launch { restoreProfileDetails(profile.uid, profile.email) }
+                loadProducts()
+                restoreCartAndFavorites(profile.uid)
+                restoreOrders(profile.uid)
+            } catch (e: TimeoutCancellationException) {
+                updateError(getApplication<Application>().getString(R.string.err_google_sign_in_failed, "timeout"))
+            } catch (e: Exception) {
+                updateError(getApplication<Application>().getString(R.string.err_google_sign_in_failed, e.message))
+            }
+        }
+    }
+
+    fun onGoogleSignInMissingToken() {
+        updateError(getApplication<Application>().getString(R.string.err_google_sign_in_missing_token))
+    }
+
+    fun onGoogleSignInCancelled() {
+        _uiState.value = _uiState.value.copy(
+            isLoading = false,
+            error = null,
+            profileMessage = getApplication<Application>().getString(R.string.msg_google_sign_in_cancelled)
+        )
+    }
+
+    fun onGoogleSignInFailed(e: Exception) {
+        val details = if (e is ApiException) {
+            val code = e.statusCode
+            val hint = when (code) {
+                10 -> "DEVELOPER_ERROR (SHA/пакет/клиент)"
+                7 -> "NETWORK_ERROR"
+                12500 -> "SIGN_IN_FAILED"
+                12501 -> "CANCELED"
+                else -> "code=$code"
+            }
+            "${e.message ?: ""} [$hint]"
+        } else {
+            e.message
+        }
+        updateError(getApplication<Application>().getString(R.string.err_google_sign_in_failed, details))
     }
 
     fun signInAnonymously() {
@@ -346,8 +557,10 @@ class FurnitureSalesViewModel @Inject constructor(
                     addresses = emptyList(),
                     shippingAddress = "",
                     phone = "",
+                    hasPasswordProvider = false,
                     isLoading = false,
                     error = null,
+                    profileMessage = null,
                     checkoutMessage = null
                 )
                 loadProducts()
@@ -578,12 +791,7 @@ class FurnitureSalesViewModel @Inject constructor(
                 return
             }
 
-            trimmedPhone.isBlank() -> {
-                _uiState.value = _uiState.value.copy(error = app.getString(R.string.err_profile_phone_required))
-                return
-            }
-
-            phoneDigits.length < 11 -> {
+            trimmedPhone.isNotBlank() && phoneDigits.length < 11 -> {
                 _uiState.value = _uiState.value.copy(error = app.getString(R.string.err_profile_phone_invalid))
                 return
             }
@@ -599,6 +807,9 @@ class FurnitureSalesViewModel @Inject constructor(
         )
         if (updatedProfile.uid != "guest") {
             persistCustomer(updatedProfile, trimmedAddress, trimmedPhone, _uiState.value.paymentMethod, _uiState.value.deliveryMethod)
+            viewModelScope.launch {
+                upsertUserContact(updatedProfile.uid, updatedProfile.displayName, trimmedAddress, trimmedPhone)
+            }
         }
     }
 
@@ -626,46 +837,58 @@ class FurnitureSalesViewModel @Inject constructor(
     }
 
     fun changePassword(currentPassword: String, newPassword: String) {
-        val profile = _uiState.value.userProfile
-        if (profile == null) {
+        if (newPassword.length < 6) {
+            updateError(getApplication<Application>().getString(R.string.err_new_password_short))
+            return
+        }
+        val user = auth.currentUser
+        if (user == null) {
             updateError(getApplication<Application>().getString(R.string.err_sign_in_first))
             return
         }
+        val email = user.email?.trim().orEmpty()
+        if (email.isBlank()) {
+            updateError(getApplication<Application>().getString(R.string.err_account_not_found))
+            return
+        }
+        val hasPassword = hasPasswordProvider(user)
+        if (hasPassword && currentPassword.isBlank()) {
+            updateError(getApplication<Application>().getString(R.string.err_current_password_required))
+            return
+        }
+        updateLoading(true)
         viewModelScope.launch {
-            val email = profile.email?.trim().orEmpty()
-            val stored = userStore[email]
-            when {
-                stored == null -> {
-                    updateError(getApplication<Application>().getString(R.string.err_account_not_found))
+            try {
+                if (hasPassword) {
+                    val credential = EmailAuthProvider.getCredential(email, currentPassword)
+                    user.reauthenticate(credential).await()
+                    user.updatePassword(newPassword).await()
+                } else {
+                    val credential = EmailAuthProvider.getCredential(email, newPassword)
+                    user.linkWithCredential(credential).await()
                 }
-
-                stored != currentPassword -> {
-                    updateError(getApplication<Application>().getString(R.string.err_current_password_wrong))
-                }
-
-                newPassword.length < 6 -> {
-                    updateError(getApplication<Application>().getString(R.string.err_new_password_short))
-                }
-
-                else -> {
-                    userStore[email] = newPassword
-                    // persist updated password into DB
-                    val existing = db.customerDao().findByEmail(email)
-                    if (existing != null) {
-                        db.customerDao().upsert(
-                            existing.copy(password = newPassword)
-                        )
-                    }
-                    _uiState.value = _uiState.value.copy(
-                        error = null,
-                        profileMessage = getApplication<Application>().getString(R.string.msg_password_changed)
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    error = null,
+                    hasPasswordProvider = true,
+                    profileMessage = getApplication<Application>().getString(
+                        if (hasPassword) R.string.msg_password_changed else R.string.msg_password_set
                     )
+                )
+            } catch (e: Exception) {
+                val app = getApplication<Application>()
+                val message = when (e) {
+                    is FirebaseAuthInvalidCredentialsException -> app.getString(R.string.err_current_password_wrong)
+                    is FirebaseAuthRecentLoginRequiredException -> app.getString(R.string.err_recent_login_required)
+                    is FirebaseAuthUserCollisionException -> app.getString(R.string.err_email_already_registered)
+                    else -> app.getString(R.string.err_change_password_failed, e.message)
                 }
+                updateError(message)
             }
         }
     }
 
-    fun resetPassword(email: String, newPassword: String) {
+    fun resetPassword(email: String) {
         updateLoading(true)
         viewModelScope.launch {
             try {
@@ -674,21 +897,11 @@ class FurnitureSalesViewModel @Inject constructor(
                     updateError(getApplication<Application>().getString(R.string.err_enter_valid_email))
                     return@launch
                 }
-                if (newPassword.length < 6) {
-                    updateError(getApplication<Application>().getString(R.string.err_new_password_short))
-                    return@launch
-                }
-                val customer = db.customerDao().findByEmail(trimmedEmail)
-                if (customer == null) {
-                    updateError(getApplication<Application>().getString(R.string.err_email_not_found))
-                    return@launch
-                }
-                userStore[trimmedEmail] = newPassword
-                db.customerDao().upsert(customer.copy(password = newPassword))
+                auth.sendPasswordResetEmail(trimmedEmail).await()
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     error = null,
-                    profileMessage = getApplication<Application>().getString(R.string.msg_password_updated)
+                    profileMessage = getApplication<Application>().getString(R.string.msg_password_reset_email_sent)
                 )
             } catch (e: Exception) {
                 updateError(getApplication<Application>().getString(R.string.err_reset_password_failed, e.message))

@@ -11,6 +11,9 @@ interface CustomerDao {
     @Query("SELECT * FROM customers")
     fun getCustomers(): Flow<List<CustomerEntity>>
 
+    @Query("SELECT * FROM customers WHERE uid = :uid LIMIT 1")
+    suspend fun findByUid(uid: String): CustomerEntity?
+
     @Query("SELECT * FROM customers WHERE email = :email LIMIT 1")
     suspend fun findByEmail(email: String): CustomerEntity?
 
